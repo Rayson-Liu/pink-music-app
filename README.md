@@ -26,7 +26,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/你的用户名/pink-music.git
+git clone https://github.com/Rayson-Liu/pink-music.git
 
 # 安装依赖
 npm install
