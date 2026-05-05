@@ -93,10 +93,3 @@ pink-music/
 └── vite.config.js
 ```
 
-## 免责声明
-
-本项目仅供个人学习交流使用，请勿用于任何商业用途。使用本项目产生的任何问题由使用者自行承担。
-
-## License
-
-[Unlicense License](LICENSE)
