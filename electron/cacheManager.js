@@ -77,11 +77,6 @@ class CacheManager {
     return fs.existsSync(filePath)
   }
 
-  // 获取缓存信息
-  getCacheInfo(bvid, quality = 'mp3') {
-    return this.db.data.cache[`${bvid}_${quality}`]
-  }
-
   // 保存缓存信息
   saveCacheInfo(bvid, quality, info) {
     if (!this.db) return

@@ -1,7 +1,10 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const axios = require('axios');
 const httpCookie = require('cookie');
+
+const cacheManager = require('./cacheManager');
 
 const BILIBILI_BASE = 'https://api.bilibili.com';
 const BILIBILI_WEB = 'https://passport.bilibili.com';
@@ -364,7 +367,7 @@ function createWindow() {
   });
 
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-    mainWindow.loadURL('http://localhost:5173/');
+    mainWindow.loadURL('http://localhost:5175/');
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -517,24 +520,213 @@ ipcMain.handle('get-video-episodes', async (event, bvid) => {
   }
 });
 
-ipcMain.handle('download-audio', async (event, audioUrl, fileName) => {
+ipcMain.handle('get-video-series', async (event, bvid) => {
   try {
-    console.log('开始下载音频:', audioUrl, fileName);
-    const { promisify } = require('util');
-    const fs = require('fs');
-    const path = require('path');
-    const writeFile = promisify(fs.writeFile);
+    const result = await bilibiliAPI.getVideoSeries(bvid);
+    console.log('获取视频合集结果:', JSON.stringify(result)?.substring(0, 500));
+    return result;
+  } catch (error) {
+    return { code: -1, message: error.message };
+  }
+});
+
+// 计算缓存大小
+ipcMain.handle('get-cache-size', async () => {
+  try {
+    let totalSize = 0;
     
-    const buffer = await bilibiliAPI.getAudioProxy(audioUrl);
+    // 用户数据目录中的下载文件夹
+    const downloadDir = path.join(app.getPath('userData'), 'downloads');
+    if (fs.existsSync(downloadDir)) {
+      totalSize += await calculateDirectorySize(downloadDir);
+    }
     
-    // 使用应用数据目录作为下载位置，避免权限问题
-    const appDataDir = app.getPath('userData');
-    const downloadDir = path.join(appDataDir, 'downloads');
+    // Electron 的缓存目录
+    const cacheDir = path.join(app.getPath('userData'), 'Cache');
+    if (fs.existsSync(cacheDir)) {
+      totalSize += await calculateDirectorySize(cacheDir);
+    }
+    
+    // Session 缓存
+    try {
+      const cachePath = path.join(app.getPath('userData'), 'Code Cache');
+      if (fs.existsSync(cachePath)) {
+        totalSize += await calculateDirectorySize(cachePath);
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+    
+    // cacheManager 管理的音频缓存
+    try {
+      const audioCacheDir = path.join(__dirname, '..', 'cache', 'audio');
+      if (fs.existsSync(audioCacheDir)) {
+        totalSize += await calculateDirectorySize(audioCacheDir);
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+    
+    // 项目根目录下的 cache 目录
+    try {
+      const projectCacheDir = path.join(__dirname, '..', 'cache');
+      if (fs.existsSync(projectCacheDir)) {
+        totalSize += await calculateDirectorySize(projectCacheDir);
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+    
+    return { code: 0, size: totalSize };
+  } catch (error) {
+    console.error('获取缓存大小失败:', error);
+    return { code: -1, message: error.message };
+  }
+});
+
+// 清空缓存
+ipcMain.handle('clear-cache', async () => {
+  try {
+    // 清空下载目录中的缓存
+    const downloadDir = path.join(app.getPath('userData'), 'downloads');
+    if (fs.existsSync(downloadDir)) {
+      try {
+        const files = fs.readdirSync(downloadDir);
+        for (const file of files) {
+          const filePath = path.join(downloadDir, file);
+          fs.unlinkSync(filePath);
+        }
+      } catch (e) {
+        console.log('清空下载目录失败:', e);
+      }
+    }
+    
+    // 清空 Electron 的缓存
+    try {
+      await session.defaultSession.clearCache();
+      await session.defaultSession.clearStorageData();
+    } catch (e) {
+      console.log('清空 session 缓存失败:', e);
+    }
+    
+    // 清空 cacheManager 管理的缓存
+    try {
+      cacheManager.clearAllCache();
+    } catch (e) {
+      console.log('清空音频缓存失败:', e);
+    }
+    
+    // 清空项目根目录下的 cache 目录
+    try {
+      const projectCacheDir = path.join(__dirname, '..', 'cache');
+      if (fs.existsSync(projectCacheDir)) {
+        fs.rmSync(projectCacheDir, { recursive: true, force: true });
+      }
+    } catch (e) {
+      console.log('清空项目缓存目录失败:', e);
+    }
+    
+    return { code: 0 };
+  } catch (error) {
+    console.error('清空缓存失败:', error);
+    return { code: -1, message: error.message };
+  }
+});
+
+// 选择下载目录
+ipcMain.handle('select-download-directory', async () => {
+  try {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: '选择下载目录'
+    });
+    
+    if (!result.canceled && result.filePaths.length > 0) {
+      return { code: 0, path: result.filePaths[0] };
+    }
+    return { code: 1, message: '未选择目录' };
+  } catch (error) {
+    console.error('选择目录失败:', error);
+    return { code: -1, message: error.message };
+  }
+});
+
+// 获取当前下载目录
+ipcMain.handle('get-download-directory', async () => {
+  try {
+    let downloadDir = path.join(app.getPath('userData'), 'downloads');
+    
+    // 尝试从本地存储读取保存的目录
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (settings.downloadDir) {
+        downloadDir = settings.downloadDir;
+      }
+    }
+    
+    // 确保目录存在
     if (!fs.existsSync(downloadDir)) {
       fs.mkdirSync(downloadDir, { recursive: true });
     }
     
-    // 生成文件名，确保格式正确
+    return { code: 0, path: downloadDir };
+  } catch (error) {
+    console.error('获取下载目录失败:', error);
+    return { code: -1, message: error.message };
+  }
+});
+
+// 保存下载目录
+ipcMain.handle('set-download-directory', async (event, dirPath) => {
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    let settings = {};
+    
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    }
+    
+    settings.downloadDir = dirPath;
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    
+    // 确保目录存在
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+    
+    return { code: 0 };
+  } catch (error) {
+    console.error('保存下载目录失败:', error);
+    return { code: -1, message: error.message };
+  }
+});
+
+// 更新下载音频函数,使用自定义目录
+ipcMain.handle('download-audio', async (event, audioUrl, fileName) => {
+  try {
+    console.log('开始下载音频:', audioUrl, fileName);
+    const { promisify } = require('util');
+    const writeFile = promisify(fs.writeFile);
+    
+    const buffer = await bilibiliAPI.getAudioProxy(audioUrl);
+    
+    // 获取下载目录
+    let downloadDir = path.join(app.getPath('userData'), 'downloads');
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (settings.downloadDir) {
+        downloadDir = settings.downloadDir;
+      }
+    }
+    
+    // 确保下载目录存在
+    if (!fs.existsSync(downloadDir)) {
+      fs.mkdirSync(downloadDir, { recursive: true });
+    }
+    
+    // 生成文件名,确保格式正确
     const safeFileName = fileName.replace(/[<>"/\\|?*]/g, '').substring(0, 100);
     const filePath = path.join(downloadDir, `${safeFileName}.mp3`);
     
@@ -547,14 +739,19 @@ ipcMain.handle('download-audio', async (event, audioUrl, fileName) => {
   }
 });
 
+// 更新打开下载目录函数
 ipcMain.handle('open-download-folder', async () => {
   try {
-    const { shell } = require('electron');
-    const path = require('path');
-    const downloadDir = path.join(app.getPath('userData'), 'downloads');
+    let downloadDir = path.join(app.getPath('userData'), 'downloads');
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (settings.downloadDir) {
+        downloadDir = settings.downloadDir;
+      }
+    }
     
     // 确保下载目录存在
-    const fs = require('fs');
     if (!fs.existsSync(downloadDir)) {
       fs.mkdirSync(downloadDir, { recursive: true });
     }
@@ -567,12 +764,40 @@ ipcMain.handle('open-download-folder', async () => {
   }
 });
 
-ipcMain.handle('get-video-series', async (event, bvid) => {
+// 打开 GitHub 链接
+ipcMain.handle('open-github', async () => {
   try {
-    const result = await bilibiliAPI.getVideoSeries(bvid);
-    console.log('获取视频合集结果:', JSON.stringify(result)?.substring(0, 500));
-    return result;
+    await shell.openExternal('https://github.com/Rayson-Liu/pink-music-app');
+    return { code: 0 };
   } catch (error) {
+    console.error('打开 GitHub 失败:', error);
     return { code: -1, message: error.message };
   }
 });
+
+// 辅助函数: 计算目录大小
+async function calculateDirectorySize(dirPath) {
+  let totalSize = 0;
+  
+  async function scanDirectory(currentPath) {
+    const files = fs.readdirSync(currentPath);
+    for (const file of files) {
+      const filePath = path.join(currentPath, file);
+      const stats = fs.statSync(filePath);
+      
+      if (stats.isDirectory()) {
+        await scanDirectory(filePath);
+      } else {
+        totalSize += stats.size;
+      }
+    }
+  }
+  
+  try {
+    await scanDirectory(dirPath);
+  } catch (e) {
+    console.error('扫描目录失败:', e);
+  }
+  
+  return totalSize;
+}

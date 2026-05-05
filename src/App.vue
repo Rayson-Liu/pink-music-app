@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { parseDuration, formatPlayCount } from './utils/bilibili.js'
 
 // Helper function to strip HTML tags
@@ -44,11 +44,11 @@ function setupMediaSessionHandlers() {
   if (!('mediaSession' in navigator)) return;
   
   navigator.mediaSession.setActionHandler('play', () => {
-    togglePlay()
+    togglePlayPause()
   });
   
   navigator.mediaSession.setActionHandler('pause', () => {
-    togglePlay()
+    togglePlayPause()
   });
   
   navigator.mediaSession.setActionHandler('previoustrack', () => {
@@ -101,6 +101,104 @@ const showAddToPlaylistModal = ref(false)
 const currentVideoEpisodes = ref([])
 const isLoadingEpisodes = ref(false)
 const currentEpisodeIndex = ref(0)
+const albumArtRef = ref(null)
+
+// 设置功能状态
+const showSettingsPanel = ref(false)
+const settingsTab = ref('general') // general, about
+const cacheSize = ref(0)
+const isCalculatingCache = ref(false)
+const isClearingCache = ref(false)
+const downloadDirectory = ref('')
+const showClearCacheConfirm = ref(false)
+
+// 格式化文件大小
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+}
+
+// 计算缓存大小
+async function calculateCacheSize() {
+  if (!window.electronAPI) return
+  isCalculatingCache.value = true
+  try {
+    const result = await window.electronAPI.getCacheSize()
+    if (result.code === 0) {
+      cacheSize.value = result.size
+    }
+  } catch (error) {
+    console.error('计算缓存大小失败:', error)
+  } finally {
+    isCalculatingCache.value = false
+  }
+}
+
+// 清理缓存
+async function clearCache() {
+  if (!window.electronAPI) return
+  isClearingCache.value = true
+  try {
+    const result = await window.electronAPI.clearCache()
+    if (result.code === 0) {
+      alert('缓存清理成功！')
+      cacheSize.value = 0
+    } else {
+      alert('缓存清理失败：' + result.message)
+    }
+  } catch (error) {
+    console.error('清理缓存失败:', error)
+    alert('缓存清理失败：' + error.message)
+  } finally {
+    isClearingCache.value = false
+    showClearCacheConfirm.value = false
+  }
+}
+
+// 选择下载目录
+async function selectDownloadDirectory() {
+  if (!window.electronAPI) return
+  try {
+    const result = await window.electronAPI.selectDownloadDirectory()
+    if (result.code === 0) {
+      downloadDirectory.value = result.path
+      await window.electronAPI.setDownloadDirectory(result.path)
+    }
+  } catch (error) {
+    console.error('选择下载目录失败:', error)
+  }
+}
+
+// 获取当前下载目录
+async function getCurrentDownloadDirectory() {
+  if (!window.electronAPI) return
+  try {
+    const result = await window.electronAPI.getDownloadDirectory()
+    if (result.code === 0) {
+      downloadDirectory.value = result.path
+    }
+  } catch (error) {
+    console.error('获取下载目录失败:', error)
+  }
+}
+
+// 打开GitHub
+async function openGitHub() {
+  if (!window.electronAPI) return
+  try {
+    await window.electronAPI.openGitHub()
+  } catch (error) {
+    console.error('打开GitHub失败:', error)
+  }
+}
+
+// 点击播放栏封面打开大屏播放
+function openPlayerPageFromCover() {
+  showPlayerPage.value = true
+}
 
 const playMode = ref('order')
 const playModes = [
@@ -211,8 +309,11 @@ async function loadRecommendedMusic() {
           pubdate: item.pubdate
         }))
         
+        // 过滤掉标题包含敏感词的歌曲
+        const filteredMusic = musicList.filter(music => !music.title.includes('吻'))
+        
         // 随机打乱结果
-        const shuffledMusic = [...musicList].sort(() => 0.5 - Math.random())
+        const shuffledMusic = [...filteredMusic].sort(() => 0.5 - Math.random())
         recommendedMusic.value = shuffledMusic
       } else {
         recommendedMusic.value = []
@@ -843,6 +944,26 @@ function loadPlaylists() {
   if (saved) {
     userPlaylists.value = JSON.parse(saved)
   }
+  
+  const favoritesExists = userPlaylists.value.some(p => p.id === 'favorites')
+  if (!favoritesExists) {
+    userPlaylists.value.unshift({
+      id: 'favorites',
+      name: '收藏夹',
+      music: [],
+      isDefault: true
+    })
+    savePlaylists()
+  }
+}
+
+function deletePlaylist(playlist) {
+  if (playlist.isDefault) return
+  const index = userPlaylists.value.findIndex(p => p.id === playlist.id)
+  if (index > -1) {
+    userPlaylists.value.splice(index, 1)
+    savePlaylists()
+  }
 }
 
 function exportPlaylist(playlist) {
@@ -1060,6 +1181,10 @@ async function loadBilibiliFavorites() {
   }
 }
 
+watch(showPlayerPage, (newVal) => {
+  // CSS 动画现在由 .player-page.active 类自动控制
+})
+
 onMounted(() => {
   document.documentElement.setAttribute('data-theme', currentTheme.value)
   document.documentElement.setAttribute('data-color', currentColor.value)
@@ -1067,6 +1192,8 @@ onMounted(() => {
   loadPlayHistory()
   loadRecommendedMusic()
   setupMediaSessionHandlers()
+  getCurrentDownloadDirectory()
+  calculateCacheSize()
 })
 </script>
 
@@ -1114,10 +1241,18 @@ onMounted(() => {
             :key="playlist.id"
             class="playlist-item"
             @click="goToPlaylist(playlist)"
-            :class="{ playing: currentPlaylist?.id === playlist.id && currentView === 'playlist' }"
+            :class="{ playing: currentPlaylist?.id === playlist.id && currentView === 'playlist', default: playlist.isDefault }"
           >
             <span>{{ playlist.name }}</span>
             <span class="playlist-count">{{ playlist.music.length }}</span>
+            <button 
+              v-if="!playlist.isDefault" 
+              class="delete-playlist-btn" 
+              @click.stop="deletePlaylist(playlist)"
+              title="删除歌单"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            </button>
           </button>
 
           <!-- <div v-if="isLoggedIn" class="nav-section">
@@ -1157,14 +1292,17 @@ onMounted(() => {
               <span>暂无播放历史</span>
             </button>
             <button
-              v-for="(music, index) in playHistory.slice(0, 10)"
+              v-for="(music, index) in playHistory.slice(0, 5)"
               :key="music.bvid"
               class="playlist-item"
               @click="playMusic(music)"
             >
-              <span>{{ music.title }}</span>
+              <span class="text-truncate">{{ music.title }}</span>
               <span class="playlist-count">{{ index + 1 }}</span>
             </button>
+            <div v-if="playHistory.length > 5" class="history-more">
+              <span>还有 {{ playHistory.length - 5 }} 首</span>
+            </div>
           </div>
         </div>
 
@@ -1172,6 +1310,13 @@ onMounted(() => {
           <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
           <span>{{ isLoggedIn ? '退出登录' : '登录B站' }}</span>
         </button> -->
+        
+        <div class="sidebar-footer">
+          <button class="nav-item settings-btn" @click="showSettingsPanel = !showSettingsPanel" :class="{ active: showSettingsPanel }">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.39-1.08-.7-1.66-.94l-.38-2.65c-.03-.24-.24-.42-.48-.42h-4c-.24 0-.45.18-.48.42l-.38 2.65c-.58.24-1.14.55-1.66.94l-2.49-1c-.22-.08-.49 0-.61.22l-2 3.46c-.12.22-.07.49.12.64l2.11 1.65c-.04.32-.07.64-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.39 1.08.7 1.66.94l.38 2.65c.03.24.24.42.48.42h4c.24 0 .45-.18.48-.42l.38-2.65c.58-.24 1.14-.55 1.66-.94l2.49 1c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zm-7.43 2.52c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+            <span>设置</span>
+          </button>
+        </div>
       </nav>
     </aside>
 
@@ -1312,7 +1457,12 @@ onMounted(() => {
 
     <div v-if="currentTrack" class="player-bar">
       <div class="current-track">
-        <img :src="currentTrack.cover" :alt="currentTrack.title" class="current-cover" @error="$event.target.src='https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400'">
+        <button class="current-cover-btn" @click="openPlayerPageFromCover">
+          <img :src="currentTrack.cover" :alt="currentTrack.title" class="current-cover" @error="$event.target.src='https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400'">
+          <div class="cover-overlay">
+            <svg viewBox="0 0 24 24" fill="white" width="24" height="24"><path d="M8 5v14l11-7z"/></svg>
+          </div>
+        </button>
         <div class="current-info">
           <h4>{{ currentTrack.title }}</h4>
           <p>{{ currentTrack.author }}</p>
@@ -1402,7 +1552,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="showPlayerPage && currentTrack" class="player-page" @click="showPlayerPage = false">
+    <div v-if="showPlayerPage && currentTrack" class="player-page" :class="{ active: showPlayerPage }" @click="showPlayerPage = false">
       <div class="player-page-content" @click.stop>
         <button class="back-btn" @click="showPlayerPage = false">
           <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
@@ -1414,8 +1564,8 @@ onMounted(() => {
           <span class="series-count">{{ currentSeries.episodes.length }}</span>
         </button>
 
-        <div class="album-art">
-          <img :src="currentTrack.cover" :alt="currentTrack.title" @error="$event.target.src='https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400'">
+        <div ref="albumArtRef" class="album-art">
+          <img :src="fixCoverUrl(currentTrack.cover)" :alt="currentTrack.title" @error="$event.target.src='https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400'">
         </div>
 
         <div class="track-info">
@@ -1586,6 +1736,111 @@ onMounted(() => {
           <button class="modal-btn cancel" @click="showAddToPlaylistModal = false">
             关闭
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置面板 -->
+    <div v-if="showSettingsPanel" class="settings-panel">
+      <div class="settings-panel-content">
+        <div class="settings-header">
+          <h2 class="text-gradient">设置</h2>
+          <button class="close-btn" @click="showSettingsPanel = false">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+
+        <!-- 设置标签页 -->
+        <div class="settings-tabs">
+          <button 
+            class="settings-tab" 
+            :class="{ active: settingsTab === 'general' }"
+            @click="settingsTab = 'general'"
+          >
+            通用
+          </button>
+          <button 
+            class="settings-tab" 
+            :class="{ active: settingsTab === 'about' }"
+            @click="settingsTab = 'about'"
+          >
+            关于
+          </button>
+        </div>
+
+        <!-- 通用设置 -->
+        <div v-if="settingsTab === 'general'" class="settings-content">
+          <!-- 下载目录设置 -->
+          <div class="settings-section">
+            <h3>下载设置</h3>
+            <div class="setting-item">
+              <label>下载目录</label>
+              <div class="setting-value">
+                <span class="path-text">{{ downloadDirectory || '未设置' }}</span>
+                <button class="browse-btn" @click="selectDownloadDirectory">
+                  浏览
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 缓存管理 -->
+          <div class="settings-section">
+            <h3>缓存管理</h3>
+            <div class="setting-item">
+              <label>当前缓存大小</label>
+              <div class="setting-value">
+                <span v-if="isCalculatingCache" class="loading-text">计算中...</span>
+                <span v-else class="cache-size">{{ formatFileSize(cacheSize) }}</span>
+                <button 
+                  class="clear-cache-btn" 
+                  @click="showClearCacheConfirm = true"
+                  :disabled="isClearingCache"
+                >
+                  {{ isClearingCache ? '清理中...' : '清理缓存' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 关于页面 -->
+        <div v-if="settingsTab === 'about'" class="settings-content about-content">
+          <div class="about-logo">
+            <span class="logo-text">Pink Music</span>
+            <span class="version">v1.1.0</span>
+          </div>
+          
+          <div class="about-description">
+            <p>一款优雅的 B 站音乐播放器，让你发现并享受喜欢的音乐。</p>
+          </div>
+
+          <div class="about-links">
+            <button class="about-link-btn" @click="openGitHub">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              <span>GitHub</span>
+            </button>
+          </div>
+
+          <div class="developer-info">
+            <span>Developed by Rayson Liu</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 清理缓存确认弹窗 -->
+      <div v-if="showClearCacheConfirm" class="modal-overlay" @click="showClearCacheConfirm = false">
+        <div class="modal small-modal" @click.stop>
+          <h2>确认清理缓存</h2>
+          <p>清理缓存将删除所有已下载的音频文件和应用缓存，此操作不可恢复。</p>
+          <div class="modal-buttons">
+            <button class="modal-btn cancel" @click="showClearCacheConfirm = false">
+              取消
+            </button>
+            <button class="modal-btn confirm danger" @click="clearCache">
+              确认清理
+            </button>
+          </div>
         </div>
       </div>
     </div>

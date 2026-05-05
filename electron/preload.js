@@ -16,7 +16,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getRecommendations: () => ipcRenderer.invoke('get-recommendations'),
   getVideoSeries: (bvid) => ipcRenderer.invoke('get-video-series', bvid),
   downloadAudio: (audioUrl, fileName) => ipcRenderer.invoke('download-audio', audioUrl, fileName),
-  openDownloadFolder: () => ipcRenderer.invoke('open-download-folder')
+  openDownloadFolder: () => ipcRenderer.invoke('open-download-folder'),
+  
+  // 设置相关 API
+  getCacheSize: () => ipcRenderer.invoke('get-cache-size'),
+  clearCache: () => ipcRenderer.invoke('clear-cache'),
+  selectDownloadDirectory: () => ipcRenderer.invoke('select-download-directory'),
+  getDownloadDirectory: () => ipcRenderer.invoke('get-download-directory'),
+  setDownloadDirectory: (dirPath) => ipcRenderer.invoke('set-download-directory', dirPath),
+  openGitHub: () => ipcRenderer.invoke('open-github')
 });
 
 contextBridge.exposeInMainWorld('electron', {

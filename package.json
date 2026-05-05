@@ -1,7 +1,7 @@
 {
   "name": "pink-music",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.1.0",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -29,9 +29,17 @@
   "build": {
     "appId": "com.pinkmusic.app",
     "productName": "Pink Music",
+    "compression": "maximum",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "electron/**/*",
-      "dist/**/*",
+      {
+        "from": "dist",
+        "to": "dist",
+        "filter": ["index.html", "assets/**/*"]
+      },
       "pink.png"
     ],
     "mac": {
@@ -42,7 +50,11 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "arm64"]
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["arm64"]
         }
       ],
       "icon": "pink.png"
