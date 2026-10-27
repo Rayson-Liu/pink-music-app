@@ -312,7 +312,7 @@ onUnmounted(() => {
 
     <!-- 歌词主体：当前行 + 翻译/罗马音副行（长行逐档缩字号，缩到下限仍超宽才省略） -->
     <div ref="bodyRef" class="dl-body">
-      <div v-if="!hasLyric" class="dl-empty">♪ 暂无歌词<template v-if="trackTitle"> · {{ trackTitle }}</template></div>
+      <div v-if="!hasLyric" class="dl-empty">♪ 沒有歌詞<template v-if="trackTitle"> · {{ trackTitle }}</template></div>
       <template v-else>
         <p :key="'line-' + currentLineIndex" class="dl-line clickable" :style="mainTextStyle"
            title="点击跳转"

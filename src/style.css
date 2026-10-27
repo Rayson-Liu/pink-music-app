@@ -48,6 +48,7 @@
   --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.25);
   
   /* 毛玻璃效果 */
+  --ui-opacity: 0.85;
   --glass-bg: rgba(26, 26, 46, 0.65);
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-blur: 24px;
@@ -496,6 +497,43 @@ body {
     transform: translate(2%, 2%) rotate(1deg); 
     opacity: 0.5;
   }
+}
+
+
+/* ==================== 自定义背景 ==================== */
+.custom-app-background {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.custom-bg-layer {
+  position: absolute;
+  inset: -40px;
+  background-repeat: no-repeat;
+  transition: opacity 0.2s ease, filter 0.2s ease, transform 0.2s ease;
+  will-change: transform, opacity, filter;
+}
+
+.custom-bg-mask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: background-color 0.2s ease;
+}
+
+.app-container.has-custom-bg::before {
+  opacity: 0.12 !important;
+}
+
+.app-container.has-custom-bg .sidebar,
+.app-container.has-custom-bg .player-bar,
+.app-container.has-custom-bg .glass-card,
+.app-container.has-custom-bg .topbar {
+  background: var(--glass-bg) !important;
+  transition: background 0.2s ease;
 }
 
 .app-container::after {

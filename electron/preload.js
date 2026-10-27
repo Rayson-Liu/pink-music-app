@@ -40,6 +40,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeWindow: () => ipcRenderer.invoke('close-window'),
   isWindowMaximized: () => ipcRenderer.invoke('is-window-maximized'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
+  setWindowOpacity: (opacity) => ipcRenderer.invoke('set-window-opacity', opacity),
+
+  // Discord Rich Presence API
+  discord: {
+    updateActivity: (activity) => ipcRenderer.invoke('discord-update-activity', activity),
+    clearActivity: () => ipcRenderer.invoke('discord-clear-activity'),
+    setEnabled: (enabled) => ipcRenderer.invoke('discord-set-enabled', enabled),
+    getStatus: () => ipcRenderer.invoke('discord-get-status')
+  },
 
   // 主存：原子写 + .bak + 损坏自愈
   appData: {

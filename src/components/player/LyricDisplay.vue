@@ -22,6 +22,14 @@ const props = defineProps({
 })
 
 const lyricStore = useLyricStore()
+const displayLyricError = computed(() => {
+  const err = lyricStore.lyricError
+  if (!err) return '沒有歌詞'
+  if (['未找到歌词', '暂无歌词', '歌词为空', '获取歌词失败', 'empty lyric', 'no track', '没有歌词', '沒有歌詞'].includes(err) || err.includes('歌词') || err.includes('lyric')) {
+    return '沒有歌詞'
+  }
+  return err
+})
 const playerStore = usePlayerStore()
 const settingsStore = useSettingsStore()
 
@@ -406,7 +414,7 @@ function getSubLines(line) {
       </div>
 
       <div v-else-if="lyricStore.lyricError" class="lyric-state err">
-        <p>{{ lyricStore.lyricError }}</p>
+        <p>{{ displayLyricError }}</p>
         <div class="err-actions">
           <button class="ebtn" @click="handleRetry">重试</button>
           <button class="ebtn" @click="openSearch">搜索歌词</button>
@@ -507,7 +515,7 @@ function getSubLines(line) {
       </div>
 
       <div v-else class="lyric-state">
-        <p>暂无歌词</p>
+        <p>沒有歌詞</p>
         <button class="ebtn" @click="openSearch">搜索歌词</button>
       </div>
     </div>

@@ -183,7 +183,7 @@ function drawFrame(timestamp) {
     ctx.globalAlpha = alpha
 
     ctx.beginPath()
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+    ctx.arc(cx, cy, Math.max(0, radius), 0, Math.PI * 2)
     ctx.stroke()
   }
 

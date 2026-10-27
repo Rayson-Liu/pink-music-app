@@ -1,4 +1,5 @@
 <script setup>
+import CustomBackgroundSettings from './CustomBackgroundSettings.vue'
 import { onMounted } from 'vue'
 import { useSettingsStore, useThemeStore } from '@/stores'
 
@@ -123,6 +124,9 @@ function switchTab(tab) {
               @click="themeStore.setColor(color)"
             />
           </div>
+
+          <h3 style="margin-top: var(--spacing-lg);">自定义背景</h3>
+          <CustomBackgroundSettings />
         </div>
 
         <div v-if="settingsStore.activeSettingsTab === 'about'" class="settings-section">

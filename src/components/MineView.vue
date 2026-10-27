@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import CustomBackgroundSettings from './CustomBackgroundSettings.vue'
 import { useUserStore, usePlayerStore, usePlaylistStore, useSettingsStore, useThemeStore, useUpdateStore } from '../stores'
 import { parseDuration } from '../utils/bilibili'
 import { EQ_BANDS, EQ_PRESET_KEYS, EQ_PRESET_LABELS, EQ_DB_MIN, EQ_DB_MAX } from '../utils/audioEQ'
@@ -434,6 +435,7 @@ onMounted(() => {
   getCurrentDownloadDirectory()
   calculateCacheSize()
   updateStore.loadVersion()
+  checkDiscordStatus()
   // 监听顶栏"主题设置"按钮派发的全局事件：切到 settings tab
   window.addEventListener('pink-music:open-settings', handleOpenSettings)
 })
@@ -446,6 +448,31 @@ onBeforeUnmount(() => {
 
 function handleOpenSettings() {
   activeTab.value = 'settings'
+}
+
+// ============== Discord Rich Presence ==============
+const discordStatusText = ref('检查中...')
+
+async function checkDiscordStatus() {
+  if (!window.electronAPI?.discord) {
+    discordStatusText.value = 'Web 预览模式（Discord RPC 仅在 Electron 桌面端生效）'
+    return
+  }
+  try {
+    const res = await window.electronAPI.discord.getStatus()
+    if (res?.data?.connected) {
+      discordStatusText.value = '已连接到本地 Discord 客户端'
+    } else {
+      discordStatusText.value = '未检测到 Discord 客户端（请确认电脑已启动 Discord）'
+    }
+  } catch (_) {
+    discordStatusText.value = '连接异常'
+  }
+}
+
+function toggleDiscordRpc(enabled) {
+  themeStore.setDiscordRpcEnabled(enabled)
+  checkDiscordStatus()
 }
 </script>
 
@@ -628,6 +655,12 @@ function handleOpenSettings() {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- 自定义背景设置 -->
+      <div class="settings-section glass-card">
+        <h3>自定义背景</h3>
+        <CustomBackgroundSettings />
       </div>
 
       <div class="settings-section glass-card">
@@ -947,6 +980,36 @@ function handleOpenSettings() {
               >
               <span class="slider"></span>
             </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Discord Rich Presence 状态显示 -->
+      <div class="settings-section glass-card">
+        <h3>Discord Rich Presence (动态状态)</h3>
+        <div class="setting-item">
+          <div class="setting-label-with-hint">
+            <label>在 Discord 上显示正在播放</label>
+            <span class="setting-hint">启用后将在 Discord 个人资料中实时显示当前歌曲、歌手、播放进度与专辑封面 (应用 ID: 1564248069632037035)</span>
+          </div>
+          <div class="setting-value">
+            <label class="switch" :title="themeStore.discordRpcEnabled ? '关闭 Discord 状态同步' : '开启 Discord 状态同步'">
+              <input
+                type="checkbox"
+                :checked="themeStore.discordRpcEnabled"
+                @change="toggleDiscordRpc($event.target.checked)"
+              >
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="setting-item">
+          <div class="setting-label-with-hint">
+            <label>连接状态</label>
+            <span class="setting-hint">{{ discordStatusText }}</span>
+          </div>
+          <div class="setting-value">
+            <button type="button" class="btn-secondary" @click="checkDiscordStatus">刷新状态</button>
           </div>
         </div>
       </div>

@@ -368,7 +368,7 @@ export const useLyricStore = defineStore('lyric', {
         if (result?.code === 0 && result.data) {
           const lyric = this.normalizeLyric(this.parseLyric(result.data))
           if (!lyric || !lyric.lyrics.length) {
-            this.setLyricError('歌词为空')
+            this.setLyricError('沒有歌詞')
             return { success: false, error: 'empty lyric' }
           }
           // 主进程多源 fallback（netease → kugou），记录实际命中的来源
@@ -379,12 +379,12 @@ export const useLyricStore = defineStore('lyric', {
           this.cacheLyric(bvid, cid, title, artist, lyric, source)
           return { success: true, fromCache: false }
         } else {
-          this.setLyricError(result?.message || '获取歌词失败')
+          this.setLyricError('沒有歌詞')
           return { success: false, error: result?.message }
         }
       } catch (error) {
         if (this.currentKey === cacheKey) {
-          this.setLyricError(error.message || '网络错误')
+          this.setLyricError('沒有歌詞')
         }
         return { success: false, error: error.message }
       } finally {
